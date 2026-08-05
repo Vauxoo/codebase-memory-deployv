@@ -1,3 +1,16 @@
+[//]: # (start-badges)
+
+[![Build Status](https://github.com/Vauxoo/codebase-memory-deployv/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/Vauxoo/codebase-memory-deployv/actions/workflows/test.yml?query=branch%3Amain)
+[![codecov](https://codecov.io/gh/Vauxoo/codebase-memory-deployv/branch/main/graph/badge.svg)](https://codecov.io/gh/Vauxoo/codebase-memory-deployv)
+[![code-style-black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![version](https://img.shields.io/pypi/v/codebase-memory-deployv.svg)](https://pypi.org/project/codebase-memory-deployv)
+[![pypi-downloads-monthly](https://img.shields.io/pypi/dm/codebase-memory-deployv.svg?style=flat)](https://pypi.python.org/pypi/codebase-memory-deployv)
+[![supported-versions](https://img.shields.io/pypi/pyversions/codebase-memory-deployv.svg)](https://pypi.org/project/codebase-memory-deployv)
+[![wheel](https://img.shields.io/pypi/wheel/codebase-memory-deployv.svg)](https://pypi.org/project/codebase-memory-deployv)
+[![commits-since](https://img.shields.io/github/commits-since/Vauxoo/codebase-memory-deployv/v0.1.1.svg)](https://github.com/Vauxoo/codebase-memory-deployv/compare/v0.1.1...main)
+
+[//]: # (end-badges)
+
 # codebase-memory-deployv
 
 Install [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp) and index Odoo

@@ -282,28 +282,29 @@ def _instance_with_two_repos(tmp_path):
     return str(tmp_path)
 
 
-def test_read_variables_without_bash(tmp_path, monkeypatch):
-    """Windows has no bash to source variables.sh; the assignments are parsed instead."""
+def test_source_variables_reads_a_real_variables_sh(tmp_path):
+    """Excerpt of a real container file, the format pre_commit_vauxoo.envfile2envdict reads."""
     variables = tmp_path / "variables.sh"
     variables.write_text(
         'export BASE_IMAGE="quay.io/vauxoo/odootds-120-image"\n'
         'export VERSION="12.0"\n'
         'export MAIN_APP="vauxoo"\n'
-        "export MAIN_APP_UNRELATED=nope\n"
+        "export ODOORC_MAX_CRON_THREADS=4\n"
+        'export EXCLUDE="axis_google_2fa_auth,galaxy,gains"\n'
+        "# export COMMENTED=nope\n"
+        "\n"
     )
+    assert indexer.source_variables(str(variables)) == {
+        "BASE_IMAGE": "quay.io/vauxoo/odootds-120-image",
+        "VERSION": "12.0",
+        "MAIN_APP": "vauxoo",
+        "ODOORC_MAX_CRON_THREADS": "4",
+        "EXCLUDE": "axis_google_2fa_auth,galaxy,gains",
+    }
 
-    def no_bash(*args, **kwargs):
-        raise OSError("bash not found")
 
-    monkeypatch.setattr(indexer.subprocess, "check_output", no_bash)
-    assert indexer.read_variables(str(variables)) == ("vauxoo", "12.0")
-
-
-def test_read_variables_without_the_expected_keys(tmp_path, monkeypatch):
-    variables = tmp_path / "variables.sh"
-    variables.write_text('export COUNTRY="MX"\n')
-    monkeypatch.setattr(indexer.subprocess, "check_output", lambda *a, **k: "|")
-    assert indexer.read_variables(str(variables)) == ("", "")
+def test_source_variables_missing_file(tmp_path):
+    assert indexer.source_variables(str(tmp_path / "nope.sh")) == {}
 
 
 def test_resolve_project_uses_main_repo_path(tmp_path, monkeypatch):
@@ -324,13 +325,18 @@ def test_resolve_project_globs_without_main_repo_path(tmp_path, monkeypatch):
     assert indexer.resolve_project(root) == "instance_12.0"
 
 
-def test_resolve_project_without_bash(tmp_path, monkeypatch):
-    """The exact Windows case: no bash can source variables.sh, the name still resolves."""
+def test_resolve_project_runs_no_subprocess(tmp_path, monkeypatch):
+    """variables.sh is parsed, never sourced: bash is what broke the Windows CI job."""
     root = _instance_with_two_repos(tmp_path)
     monkeypatch.delenv("CBM_PROJECT", raising=False)
     monkeypatch.delenv("MAIN_REPO_FULL_PATH", raising=False)
     monkeypatch.setenv("MAIN_REPO_PATH", os.path.join("extra_addons", "vauxoo"))
-    monkeypatch.setattr(indexer.subprocess, "check_output", lambda *a, **k: "|")
+
+    def no_subprocess(*args, **kwargs):
+        raise AssertionError("resolve_project must not shell out")
+
+    monkeypatch.setattr(indexer.subprocess, "check_output", no_subprocess)
+    monkeypatch.setattr(indexer.subprocess, "check_call", no_subprocess)
     assert indexer.resolve_project(root) == "vauxoo_12.0"
 
 

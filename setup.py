@@ -42,7 +42,7 @@ def generage_long_description():
 
 setup(
     name="codebase-memory-deployv",
-    version="0.1.0",
+    version="0.1.1",
     license="LGPL-3.0-or-later",
     description="Install codebase-memory-mcp and index Odoo instances by parts inside Vauxoo containers",
     long_description=generage_long_description(),

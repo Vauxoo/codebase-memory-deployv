@@ -1,0 +1,20 @@
+name: stale
+on:
+  schedule:
+    - cron: "0 12 * * *"
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/stale@v9
+        with:
+          days-before-stale: 120
+          days-before-close: 30
+          stale-issue-message: "This issue has been automatically marked as stale because of inactivity."
+          stale-pr-message: "This pull request has been automatically marked as stale because of inactivity."
+          exempt-issue-labels: "no-stale"
+          exempt-pr-labels: "no-stale"

@@ -13,6 +13,7 @@ import csv
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 
@@ -41,6 +42,9 @@ LIST_INSTALLED_MODULES_PATH = os.path.join(os.path.dirname(os.path.abspath(__fil
 MODULES_FILE_NAME_COLUMNS = ("name", "technical name", "module")
 MODULES_FILE_STATE_COLUMNS = ("state", "status")
 INSTALLED_STATE = "installed"
+
+# deployv writes 'export MAIN_APP="name"' lines, read when bash cannot source the file.
+VARIABLES_ASSIGNMENT = re.compile(r"^\s*(?:export\s+)?(MAIN_APP|VERSION)\s*=\s*(.*?)\s*$")
 
 # query_graph refuses to return more rows than this, so a bigger result set is truncated.
 QUERY_GRAPH_MAX_ROWS = 100000
@@ -104,17 +108,37 @@ def resolve_project(root):
     for variables in candidates:
         if not os.path.isfile(variables):
             continue
-        try:
-            output = subprocess.check_output(
-                ["bash", "-c", '. "%s" >/dev/null 2>&1; printf "%%s|%%s" "$MAIN_APP" "$VERSION"' % variables],
-                universal_newlines=True,
-            )
-        except (subprocess.CalledProcessError, OSError):
-            continue
-        main_app, _, version = output.partition("|")
+        main_app, version = read_variables(variables)
         if main_app and version:
             return "%s_%s" % (main_app, version)
     return DEFAULT_PROJECT
+
+
+def read_variables(path):
+    """Return (MAIN_APP, VERSION) from a variables.sh.
+
+    Sourcing it with bash is the accurate reading, because a value may reference another
+    variable, so that is tried first. The plain assignment parse is the fallback for a
+    platform without a usable bash: deployv writes literal 'export KEY="value"' lines,
+    and it is also what keeps this testable outside the Linux containers.
+    """
+    try:
+        output = subprocess.check_output(
+            ["bash", "-c", '. "%s" >/dev/null 2>&1; printf "%%s|%%s" "$MAIN_APP" "$VERSION"' % path],
+            universal_newlines=True,
+        )
+        main_app, _, version = output.partition("|")
+        if main_app and version:
+            return main_app, version
+    except (subprocess.CalledProcessError, OSError):
+        pass
+    values = {}
+    with open(path) as variables:
+        for line in variables:
+            match = VARIABLES_ASSIGNMENT.match(line)
+            if match:
+                values[match.group(1)] = match.group(2).strip("\"'")
+    return values.get("MAIN_APP", ""), values.get("VERSION", "")
 
 
 def _variables_files(root):

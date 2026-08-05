@@ -57,7 +57,8 @@ def test_write_cbmignore_backs_up_existing(tmp_path):
 
 def test_list_installed_modules_script_is_a_packaged_file():
     script = indexer.list_installed_modules_script()
-    assert indexer.LIST_INSTALLED_MODULES_PATH.endswith("/list_installed_modules.py")
+    # basename, not endswith("/..."): the separator is "\" on Windows.
+    assert os.path.basename(indexer.LIST_INSTALLED_MODULES_PATH) == "list_installed_modules.py"
     assert os.path.isfile(indexer.LIST_INSTALLED_MODULES_PATH)
     # It runs where odoo-bin shell defines "self"; importing it must stay side-effect free.
     assert 'if "self" in dir():' in script
@@ -276,8 +277,33 @@ def _instance_with_two_repos(tmp_path):
     for repo in ("instance", "vauxoo"):
         folder = tmp_path / "extra_addons" / repo
         folder.mkdir(parents=True)
-        (folder / "variables.sh").write_text("MAIN_APP=%s\nVERSION=12.0\n" % repo)
+        # deployv's own format, so the bash and the no-bash readings run on the same input.
+        (folder / "variables.sh").write_text('export MAIN_APP="%s"\nexport VERSION="12.0"\n' % repo)
     return str(tmp_path)
+
+
+def test_read_variables_without_bash(tmp_path, monkeypatch):
+    """Windows has no bash to source variables.sh; the assignments are parsed instead."""
+    variables = tmp_path / "variables.sh"
+    variables.write_text(
+        'export BASE_IMAGE="quay.io/vauxoo/odootds-120-image"\n'
+        'export VERSION="12.0"\n'
+        'export MAIN_APP="vauxoo"\n'
+        "export MAIN_APP_UNRELATED=nope\n"
+    )
+
+    def no_bash(*args, **kwargs):
+        raise OSError("bash not found")
+
+    monkeypatch.setattr(indexer.subprocess, "check_output", no_bash)
+    assert indexer.read_variables(str(variables)) == ("vauxoo", "12.0")
+
+
+def test_read_variables_without_the_expected_keys(tmp_path, monkeypatch):
+    variables = tmp_path / "variables.sh"
+    variables.write_text('export COUNTRY="MX"\n')
+    monkeypatch.setattr(indexer.subprocess, "check_output", lambda *a, **k: "|")
+    assert indexer.read_variables(str(variables)) == ("", "")
 
 
 def test_resolve_project_uses_main_repo_path(tmp_path, monkeypatch):
@@ -296,6 +322,16 @@ def test_resolve_project_globs_without_main_repo_path(tmp_path, monkeypatch):
     monkeypatch.delenv("MAIN_REPO_PATH", raising=False)
     assert len(indexer._variables_files(root)) == 2
     assert indexer.resolve_project(root) == "instance_12.0"
+
+
+def test_resolve_project_without_bash(tmp_path, monkeypatch):
+    """The exact Windows case: no bash can source variables.sh, the name still resolves."""
+    root = _instance_with_two_repos(tmp_path)
+    monkeypatch.delenv("CBM_PROJECT", raising=False)
+    monkeypatch.delenv("MAIN_REPO_FULL_PATH", raising=False)
+    monkeypatch.setenv("MAIN_REPO_PATH", os.path.join("extra_addons", "vauxoo"))
+    monkeypatch.setattr(indexer.subprocess, "check_output", lambda *a, **k: "|")
+    assert indexer.resolve_project(root) == "vauxoo_12.0"
 
 
 def test_resolve_project_falls_back_to_default(tmp_path, monkeypatch):

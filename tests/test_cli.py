@@ -1,7 +1,22 @@
+import logging
+
 import pytest
 
 from codebase_memory_deployv import cli
 from codebase_memory_deployv.indexer import DEFAULT_BATCH_SIZE, DEFAULT_ROOT
+
+
+@pytest.fixture(autouse=True)
+def _drop_log_handlers():
+    """Detach the handler main() installs on the package logger.
+
+    It holds the stdout pytest captured for this test; left in place, logging flushes to
+    that closed stream when the worker shuts down ("I/O operation on closed file").
+    """
+    yield
+    logger = logging.getLogger(cli.PACKAGE_LOGGER)
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
 
 
 def test_parser_defaults():

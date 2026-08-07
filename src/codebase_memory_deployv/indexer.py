@@ -16,6 +16,7 @@ import os
 import re
 import shutil
 import subprocess
+import urllib.request
 
 _logger = logging.getLogger(__name__)
 
@@ -24,10 +25,14 @@ INSTALL_URL = "https://raw.githubusercontent.com/DeusData/codebase-memory-mcp/ma
 # The 0.9.0 discovery walk drops every subdirectory past 512 pending siblings *silently*
 # (fixed upstream by 03dc9c91 "grow the walk stack", first shipped in v0.9.1-rc.1):
 # extra_addons/enterprise alone holds ~790 sibling modules, so the "latest" stable the
-# installer picks indexes exactly 512 of them and reports the rest missing. Pin the
-# first release with the fix until a stable one ships; a CBM_DOWNLOAD_URL already in
-# the environment still wins over the pin.
-CBM_PINNED_DOWNLOAD_URL = "https://github.com/DeusData/codebase-memory-mcp/releases/download/v0.9.1-rc.1"
+# installer picks indexes exactly 512 of them and reports the rest missing. The pin is
+# a floor, not a ceiling: a newer *stable* release that is not known bad wins over it
+# (see latest_stable_download_url), and a CBM_DOWNLOAD_URL already in the environment
+# wins over both.
+CBM_DOWNLOAD_URL_TMPL = "https://github.com/DeusData/codebase-memory-mcp/releases/download/%s"
+CBM_PINNED_VERSION = "v0.9.1-rc.1"
+CBM_PINNED_DOWNLOAD_URL = CBM_DOWNLOAD_URL_TMPL % CBM_PINNED_VERSION
+CBM_LATEST_RELEASE_API = "https://api.github.com/repos/DeusData/codebase-memory-mcp/releases/latest"
 KNOWN_BAD_CBM_VERSIONS = ("0.9.0",)
 DEFAULT_ROOT = "/home/odoo/instance"
 DEFAULT_BATCH_SIZE = 1200
@@ -105,10 +110,47 @@ def cbm_version(binary):
     return words[-1] if words else ""
 
 
+def version_key(version):
+    """Sort key for release tags: numeric parts first, then a final release beats its rc.
+
+    "v0.9.1" > "v0.9.1-rc.2" > "v0.9.1-rc.1" > "v0.9.0". Good enough for these tags;
+    not a full semver implementation on purpose (no build metadata, no alpha/beta order).
+    """
+    release, _, prerelease = version.lstrip("v").partition("-")
+    numbers = tuple(int(part) for part in release.split(".") if part.isdigit())
+    rc = int("".join(char for char in prerelease if char.isdigit()) or 0)
+    return (numbers, 0 if prerelease else 1, rc)
+
+
+def latest_stable_download_url():
+    """Return the download URL of the newest usable stable release, or None to use the pin.
+
+    "Usable" means: a real release (the GitHub /releases/latest endpoint never returns
+    prereleases), strictly newer than the pinned version, and not a known-bad version.
+    Any failure (offline registry, API change) falls back to the pin — indexing must
+    keep working without network access to the GitHub API.
+    """
+    try:
+        with urllib.request.urlopen(CBM_LATEST_RELEASE_API, timeout=10) as response:
+            release = json.load(response)
+    except (OSError, ValueError):
+        return None
+    tag = release.get("tag_name") or ""
+    if not tag or release.get("prerelease"):
+        return None
+    if tag.lstrip("v") in KNOWN_BAD_CBM_VERSIONS:
+        return None
+    if version_key(tag) <= version_key(CBM_PINNED_VERSION):
+        return None
+    return CBM_DOWNLOAD_URL_TMPL % tag
+
+
 def run_cbm_installer():
-    """Run the upstream installer, defaulting the download to the pinned release."""
+    """Run the upstream installer against the newest usable release (pin as fallback)."""
     env = dict(os.environ)
-    env.setdefault("CBM_DOWNLOAD_URL", CBM_PINNED_DOWNLOAD_URL)
+    if "CBM_DOWNLOAD_URL" not in env:
+        env["CBM_DOWNLOAD_URL"] = latest_stable_download_url() or CBM_PINNED_DOWNLOAD_URL
+    _logger.info("installing codebase-memory-mcp from %s", env["CBM_DOWNLOAD_URL"])
     subprocess.check_call("curl -fsSL %s | bash" % INSTALL_URL, shell=True, env=env)
 
 

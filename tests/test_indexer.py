@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import logging
 import os
@@ -166,9 +168,57 @@ def _fake_installer(monkeypatch, version):
         install_envs.append(kwargs.get("env") or {})
 
     monkeypatch.setattr(indexer, "find_cbm", lambda: "/fake/codebase-memory-mcp")
+    monkeypatch.setattr(indexer, "latest_stable_download_url", lambda: None)
     monkeypatch.setattr(indexer.subprocess, "check_output", check_output)
     monkeypatch.setattr(indexer.subprocess, "check_call", check_call)
     return install_envs
+
+
+def _fake_latest_release(monkeypatch, payload):
+    """Stub the GitHub /releases/latest endpoint with the given JSON payload."""
+
+    def urlopen(url, timeout=None):
+        assert url == indexer.CBM_LATEST_RELEASE_API
+        if isinstance(payload, Exception):
+            raise payload
+        return contextlib.closing(io.BytesIO(json.dumps(payload).encode()))
+
+    monkeypatch.setattr(indexer.urllib.request, "urlopen", urlopen)
+
+
+def test_version_key_orders_releases():
+    keys = [indexer.version_key(v) for v in ("v0.9.0", "v0.9.1-rc.1", "v0.9.1-rc.2", "v0.9.1", "v0.10.0")]
+    assert keys == sorted(keys)
+    assert len(set(keys)) == len(keys)
+
+
+def test_latest_stable_download_url_prefers_newer_stable(monkeypatch):
+    _fake_latest_release(monkeypatch, {"tag_name": "v0.9.1", "prerelease": False})
+    assert indexer.latest_stable_download_url() == indexer.CBM_DOWNLOAD_URL_TMPL % "v0.9.1"
+
+
+def test_latest_stable_download_url_keeps_pin_on_older_or_bad(monkeypatch):
+    """A stable release only wins when it is newer than the pin and not known bad."""
+    _fake_latest_release(monkeypatch, {"tag_name": "v0.9.0", "prerelease": False})
+    assert indexer.latest_stable_download_url() is None  # known bad (and older)
+    _fake_latest_release(monkeypatch, {"tag_name": "v0.8.1", "prerelease": False})
+    assert indexer.latest_stable_download_url() is None  # older than the pin
+    _fake_latest_release(monkeypatch, {"tag_name": "v0.9.2", "prerelease": True})
+    assert indexer.latest_stable_download_url() is None  # prerelease
+
+
+def test_latest_stable_download_url_survives_network_errors(monkeypatch):
+    _fake_latest_release(monkeypatch, OSError("offline"))
+    assert indexer.latest_stable_download_url() is None
+
+
+def test_run_cbm_installer_uses_newer_stable_over_the_pin(monkeypatch):
+    monkeypatch.delenv("CBM_DOWNLOAD_URL", raising=False)
+    _fake_latest_release(monkeypatch, {"tag_name": "v0.9.1", "prerelease": False})
+    install_envs = []
+    monkeypatch.setattr(indexer.subprocess, "check_call", lambda cmd, **kwargs: install_envs.append(kwargs["env"]))
+    indexer.run_cbm_installer()
+    assert install_envs[0]["CBM_DOWNLOAD_URL"] == indexer.CBM_DOWNLOAD_URL_TMPL % "v0.9.1"
 
 
 def test_ensure_cbm_installed_keeps_a_good_version(monkeypatch):

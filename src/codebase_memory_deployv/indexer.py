@@ -380,8 +380,49 @@ def query_graph(project, query):
     """
     cmd = [find_cbm() or CBM_BIN, "cli", "query_graph", "--project", project, "--query", query]
     raw = subprocess.check_output(cmd, universal_newlines=True)
-    data = json.loads(raw.strip().splitlines()[-1])
-    return data.get("rows") or []
+    return parse_query_graph_output(raw)
+
+
+def parse_query_graph_output(raw):
+    """Parse both CLI output formats of query_graph into a list of rows.
+
+    codebase-memory-mcp <= 0.9.0 prints one JSON object ({"columns", "rows", "total"});
+    0.9.1 renders a human table instead:
+
+        rows: 2  (cols: f.file_path)
+          odoo/addons/sale/__manifest__.py
+          "1448"
+        total: 2
+        hint: "..."            (only on empty results)
+
+    Values in the table are space-separated per column, so only single-column queries
+    are unambiguous — every query this tool issues returns one column. Numbers come
+    back double-quoted; strip one level of quotes to match the JSON format.
+    """
+    lines = raw.strip().splitlines()
+    if not lines:
+        return []
+    try:
+        data = json.loads(lines[-1])
+        return data.get("rows") or []
+    except ValueError:
+        pass
+    rows = []
+    in_rows = False
+    for line in lines:
+        if re.match(r"rows: \d+ ", line):
+            in_rows = True
+            continue
+        if line.startswith("total:"):
+            break
+        if in_rows and line.startswith("  "):
+            value = line[2:]
+            if value.startswith('"') and value.endswith('"') and len(value) >= 2:
+                value = value[1:-1]
+            rows.append([value])
+    if not in_rows:
+        raise ValueError("unrecognized query_graph output: %s" % lines[-1][:200])
+    return rows
 
 
 def indexed_files(project):

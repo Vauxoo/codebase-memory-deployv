@@ -2,6 +2,8 @@ import json
 import logging
 import os
 
+import pytest
+
 from codebase_memory_deployv import indexer
 
 
@@ -150,6 +152,36 @@ def test_indexed_files_queries_the_graph(monkeypatch):
     # whole relative path. Only f.file_path is consistent.
     assert query == "MATCH (f:File) RETURN f.file_path"
     assert "--limit" not in calls[0]
+
+
+def test_parse_query_graph_output_json_format():
+    """codebase-memory-mcp <= 0.9.0 prints one JSON object after the log lines."""
+    raw = "level=info msg=mem.init\n%s\n" % json.dumps(
+        {"columns": ["f.file_path"], "rows": [["a/__manifest__.py"], ["b/x.py"]], "total": 2}
+    )
+    assert indexer.parse_query_graph_output(raw) == [["a/__manifest__.py"], ["b/x.py"]]
+
+
+def test_parse_query_graph_output_table_format():
+    """codebase-memory-mcp 0.9.1 renders a table; numbers come back double-quoted."""
+    raw = (
+        "hint: this command started a temporary CBM daemon.\n"
+        "rows: 2  (cols: f.file_path)\n"
+        "  a/__manifest__.py\n"
+        '  "1448"\n'
+        "total: 2\n"
+    )
+    assert indexer.parse_query_graph_output(raw) == [["a/__manifest__.py"], ["1448"]]
+
+
+def test_parse_query_graph_output_table_empty():
+    raw = 'rows: 0  (cols: f.file_path)\ntotal: 0\nhint: "Query returned no results."\n'
+    assert indexer.parse_query_graph_output(raw) == []
+
+
+def test_parse_query_graph_output_unrecognized_raises():
+    with pytest.raises(ValueError, match="unrecognized query_graph output"):
+        indexer.parse_query_graph_output("something went wrong\n")
 
 
 def test_indexed_manifest_files_matches_both_manifest_names():

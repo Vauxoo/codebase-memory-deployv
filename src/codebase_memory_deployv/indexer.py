@@ -166,7 +166,9 @@ def ensure_cbm_installed():
         version = cbm_version(found)
         if version not in KNOWN_BAD_CBM_VERSIONS:
             return found
-        _logger.warning("codebase-memory-mcp %s silently drops wide directories; reinstalling %s", version, CBM_PINNED_DOWNLOAD_URL)
+        _logger.warning(
+            "codebase-memory-mcp %s silently drops wide directories; reinstalling %s", version, CBM_PINNED_DOWNLOAD_URL
+        )
     run_cbm_installer()
     found = find_cbm()
     if not found:

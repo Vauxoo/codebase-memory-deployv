@@ -21,6 +21,14 @@ _logger = logging.getLogger(__name__)
 
 CBM_BIN = "codebase-memory-mcp"
 INSTALL_URL = "https://raw.githubusercontent.com/DeusData/codebase-memory-mcp/main/install.sh"
+# The 0.9.0 discovery walk drops every subdirectory past 512 pending siblings *silently*
+# (fixed upstream by 03dc9c91 "grow the walk stack", first shipped in v0.9.1-rc.1):
+# extra_addons/enterprise alone holds ~790 sibling modules, so the "latest" stable the
+# installer picks indexes exactly 512 of them and reports the rest missing. Pin the
+# first release with the fix until a stable one ships; a CBM_DOWNLOAD_URL already in
+# the environment still wins over the pin.
+CBM_PINNED_DOWNLOAD_URL = "https://github.com/DeusData/codebase-memory-mcp/releases/download/v0.9.1-rc.1"
+KNOWN_BAD_CBM_VERSIONS = ("0.9.0",)
 DEFAULT_ROOT = "/home/odoo/instance"
 DEFAULT_BATCH_SIZE = 1200
 DEFAULT_PROJECT = "odoo_instance"
@@ -87,12 +95,37 @@ def find_cbm():
     return None
 
 
+def cbm_version(binary):
+    """Return the installed codebase-memory-mcp version, or "" when it cannot be read."""
+    try:
+        raw = subprocess.check_output([binary, "--version"], universal_newlines=True)
+    except (OSError, subprocess.CalledProcessError):
+        return ""
+    words = raw.strip().splitlines()[-1].split()
+    return words[-1] if words else ""
+
+
+def run_cbm_installer():
+    """Run the upstream installer, defaulting the download to the pinned release."""
+    env = dict(os.environ)
+    env.setdefault("CBM_DOWNLOAD_URL", CBM_PINNED_DOWNLOAD_URL)
+    subprocess.check_call("curl -fsSL %s | bash" % INSTALL_URL, shell=True, env=env)
+
+
 def ensure_cbm_installed():
-    """Install codebase-memory-mcp in the local environment when missing."""
+    """Install codebase-memory-mcp when missing or when the installed version is known bad.
+
+    A known-bad version is worse than a missing one: it indexes most of the instance and
+    silently drops the rest, so the graph looks healthy until validation compares it
+    against the disk. Reinstall over it instead of trusting whatever is on PATH.
+    """
     found = find_cbm()
     if found:
-        return found
-    subprocess.check_call("curl -fsSL %s | bash" % INSTALL_URL, shell=True)
+        version = cbm_version(found)
+        if version not in KNOWN_BAD_CBM_VERSIONS:
+            return found
+        _logger.warning("codebase-memory-mcp %s silently drops wide directories; reinstalling %s", version, CBM_PINNED_DOWNLOAD_URL)
+    run_cbm_installer()
     found = find_cbm()
     if not found:
         raise SystemExit("codebase-memory-mcp still not found after running the installer")

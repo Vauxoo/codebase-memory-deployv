@@ -154,6 +154,45 @@ def test_indexed_files_queries_the_graph(monkeypatch):
     assert "--limit" not in calls[0]
 
 
+def _fake_installer(monkeypatch, version):
+    """Stub find_cbm/--version/installer; returns the recorded installer environments."""
+    install_envs = []
+
+    def check_output(cmd, **kwargs):
+        assert cmd == ["/fake/codebase-memory-mcp", "--version"]
+        return "level=info msg=mem.init\ncodebase-memory-mcp %s\n" % version
+
+    def check_call(cmd, **kwargs):
+        install_envs.append(kwargs.get("env") or {})
+
+    monkeypatch.setattr(indexer, "find_cbm", lambda: "/fake/codebase-memory-mcp")
+    monkeypatch.setattr(indexer.subprocess, "check_output", check_output)
+    monkeypatch.setattr(indexer.subprocess, "check_call", check_call)
+    return install_envs
+
+
+def test_ensure_cbm_installed_keeps_a_good_version(monkeypatch):
+    install_envs = _fake_installer(monkeypatch, "0.9.1-rc.1")
+    assert indexer.ensure_cbm_installed() == "/fake/codebase-memory-mcp"
+    assert install_envs == []
+
+
+def test_ensure_cbm_installed_reinstalls_a_known_bad_version(monkeypatch):
+    """0.9.0 silently drops wide directories, so it must be replaced, not trusted."""
+    monkeypatch.delenv("CBM_DOWNLOAD_URL", raising=False)
+    install_envs = _fake_installer(monkeypatch, "0.9.0")
+    assert indexer.ensure_cbm_installed() == "/fake/codebase-memory-mcp"
+    assert len(install_envs) == 1
+    assert install_envs[0]["CBM_DOWNLOAD_URL"] == indexer.CBM_PINNED_DOWNLOAD_URL
+
+
+def test_ensure_cbm_installed_respects_download_url_override(monkeypatch):
+    monkeypatch.setenv("CBM_DOWNLOAD_URL", "https://example.com/custom")
+    install_envs = _fake_installer(monkeypatch, "0.9.0")
+    indexer.ensure_cbm_installed()
+    assert install_envs[0]["CBM_DOWNLOAD_URL"] == "https://example.com/custom"
+
+
 def test_parse_query_graph_output_json_format():
     """codebase-memory-mcp <= 0.9.0 prints one JSON object after the log lines."""
     raw = "level=info msg=mem.init\n%s\n" % json.dumps(

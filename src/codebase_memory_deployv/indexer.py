@@ -39,7 +39,7 @@ DEFAULT_BATCH_SIZE = 1200
 DEFAULT_PROJECT = "odoo_instance"
 CORE_DIRS = ("odoo/odoo",)
 CORE_PREFIX = "odoo/odoo/"
-SOURCE_GLOBS = ("*.py", "*.xml", "*.js", "*.rst", "*.md", "*.css", "*.scss", "*.csv")
+SOURCE_GLOBS = ("*.py", "*.xml", "*.js", "*.rst", "*.md", "*.css", "*.scss", "*.csv", "*.sql")
 # What .cbmignore lets through, so what the graph is expected to hold: ".py", ".xml", ...
 SOURCE_EXTENSIONS = tuple(sorted(pattern[1:] for pattern in SOURCE_GLOBS))
 MANIFEST_NAMES = ("__manifest__.py", "__openerp__.py")
